@@ -7,6 +7,20 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class RailTracksConfig:
+    """Railtracks observability settings.
+
+    Sessions are saved to .railtracks/data/sessions/ for local viz
+    via `railtracks viz`.  Set save_state=False to disable persistence
+    (useful in unit tests or when OPENAI_API_KEY is absent).
+    """
+    save_state: bool = True  # always trace; disabled only in test mode via RAILTRACKS_TEST_MODE
+    flow_name: str = "FrausEntityExtraction"
+    flow_timeout: float = 8.0
+    enable_rt_logging: bool = False
+
+
+@dataclass(frozen=True)
 class GraphConfig:
     """Knobs for the knowledge graph and risk scorer."""
     max_hop: int = 2
@@ -44,6 +58,7 @@ class AppConfig:
     graph: GraphConfig = field(default_factory=GraphConfig)
     gnn: GNNConfig = field(default_factory=GNNConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    railtracks: RailTracksConfig = field(default_factory=RailTracksConfig)
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "INFO"

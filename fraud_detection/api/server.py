@@ -70,7 +70,20 @@ async def lifespan(app: FastAPI):
     logger.info("Test accuracy: %.3f", test_metrics["accuracy"])
 
     scorer = RiskScorer(fg, cfg.graph)
-    extractor = EntityExtractor(cfg.llm)
+
+    # ── Railtracks initialisation ─────────────────────────────────────
+    import railtracks as rt
+    if cfg.railtracks.enable_rt_logging:
+        rt.enable_logging(level=cfg.log_level)
+    rt.set_config(
+        save_state=cfg.railtracks.save_state,
+        timeout=cfg.railtracks.flow_timeout,
+        end_on_error=False,
+    )
+    extractor = EntityExtractor(cfg.llm, cfg.railtracks)
+    rt_mode = "railtracks_llm" if cfg.llm.api_key else "regex_fallback"
+    logger.info("EntityExtractor initialised — mode=%s  save_state=%s",
+                rt_mode, cfg.railtracks.save_state)
 
     _state.update(
         cfg=cfg, fg=fg, pyg=pyg, model=model,
@@ -143,6 +156,12 @@ class AnalysisResponse(BaseModel):
     gnn_fraud_prob: float | None
     detail: str
     latency_ms: float
+    # Railtracks observability fields
+    extraction_source: str
+    coercion_detected: bool
+    hallucination_flags: list[str]
+    rt_session_id: str | None
+    rt_latency_ms: float | None
 
 
 class RiskResponse(BaseModel):
@@ -194,7 +213,9 @@ async def analyze_transcript(req: TranscriptRequest):
     fg: FraudGraph = _get("fg")
     scorer: RiskScorer = _get("scorer")
 
-    extraction: ExtractionResult = await extractor.extract(req.transcript)
+    extraction: ExtractionResult = await extractor.extract(
+        req.transcript, caller=req.caller, callee=req.callee
+    )
 
     fg.add_call_event(
         caller=req.caller,
@@ -230,6 +251,11 @@ async def analyze_transcript(req: TranscriptRequest):
         gnn_fraud_prob=report.gnn_fraud_prob,
         detail=report.detail,
         latency_ms=round(latency, 1),
+        extraction_source=extraction.source,
+        coercion_detected=extraction.coercion_detected,
+        hallucination_flags=extraction.hallucination_flags,
+        rt_session_id=extraction.rt_session_id,
+        rt_latency_ms=extraction.rt_latency_ms,
     )
 
 
