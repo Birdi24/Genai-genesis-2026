@@ -26,17 +26,25 @@ import torch
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
 
-from fraud_detection.graph.schema import FraudGraph, NodeType, _prefixed
+from fraud_detection.graph.schema import FraudGraph, NodeType, _prefixed, RISK_PHRASES
+
+import hashlib
+
+def stable_node_seed(nid: str) -> int:
+    h = hashlib.md5(nid.encode("utf-8")).hexdigest()
+    return int(h[:8], 16)
+
 
 logger = logging.getLogger(__name__)
 
-SCAM_PERSONAS = [
+SCAM_PERSONAS = RISK_PHRASES if RISK_PHRASES else [
     "IRS Agent", "Tech Support", "Bank Officer",
     "Lottery Official", "Medicare Rep", "Utility Company",
     "Immigration Officer", "Crypto Advisor",
 ]
 
 BENIGN_PERSONAS = ["Friend", "Family", "Colleague", "Business Partner"]
+
 
 
 def _random_phone() -> str:
@@ -96,6 +104,8 @@ def generate_fraud_ring_dataset(
 
     # ── Plant fraud rings ─────────────────────────────────────────────
     fraud_phones: list[str] = []
+    victims: set[str] = set()
+
     for ring_idx in range(n_fraud_rings):
         ring_phones = [_random_phone() for _ in range(ring_size)]
         shared_accounts = [_random_account() for _ in range(2)]
@@ -110,9 +120,10 @@ def generate_fraud_ring_dataset(
             for p in ring_phones:
                 fg.link_phone_to_account(p, acc)
 
-        victims = random.sample(benign_phones, min(len(benign_phones), calls_per_fraud * ring_size))
+        # pick a pool of victims for this ring (may overlap across rings)
+        ring_victims = random.sample(benign_phones, min(len(benign_phones), calls_per_fraud * ring_size))
         for scammer in ring_phones:
-            for victim in random.sample(victims, min(len(victims), calls_per_fraud)):
+            for victim in random.sample(ring_victims, min(len(ring_victims), calls_per_fraud)):
                 fg.add_call_event(
                     caller=scammer, callee=victim,
                     persona=ring_persona,
@@ -120,7 +131,21 @@ def generate_fraud_ring_dataset(
                     label="fraud",
                 )
 
+        # Track which benign phones have been victimized by fraud calls
+        victims.update(ring_victims)
+
         logger.info("Planted fraud ring %d: %d phones, persona=%s", ring_idx, ring_size, ring_persona)
+
+    # Ensure every benign phone has at least one incoming "fraud" call so the graph shows more red regions
+    for ben_phone in benign_phones:
+        if ben_phone not in victims:
+            scammer = random.choice(fraud_phones)
+            fg.add_call_event(
+                caller=scammer, callee=ben_phone,
+                persona=random.choice(SCAM_PERSONAS),
+                accounts=[],
+                label="fraud",
+            )
 
     # ── Convert to PyG Data ───────────────────────────────────────────
     pyg_data = _graph_to_pyg(fg)
@@ -148,10 +173,10 @@ def _graph_to_pyg(fg: FraudGraph, feature_dim: int = 16) -> Data:
     n = len(node_list)
 
     type_map = {
-        NodeType.PHONE.value: 0,
-        NodeType.ACCOUNT.value: 1,
-        NodeType.PERSONA.value: 2,
-        NodeType.CALL.value: 3,
+        "phone_number": 0,
+        "bank_account": 1,
+        "persona": 2,
+        "call": 3,
     }
 
     x = np.zeros((n, feature_dim), dtype=np.float32)
@@ -172,8 +197,9 @@ def _graph_to_pyg(fg: FraudGraph, feature_dim: int = 16) -> Data:
         x[i, 6] = total_deg
         x[i, 7] = total_deg / max(g.number_of_nodes(), 1)
 
-        np.random.seed(hash(nid) % (2**31))
-        x[i, 8:] = np.random.randn(feature_dim - 8) * 0.1
+        seed = stable_node_seed(str(nid))
+        rng = np.random.default_rng(seed)
+        x[i, 8:] = rng.normal(0, 0.1, size=(feature_dim - 8,))
 
         labels[i] = label_map.get(data.get("label", "unknown"), 0)
 

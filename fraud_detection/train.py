@@ -36,7 +36,14 @@ def main() -> None:
     logging.basicConfig(level="INFO", format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
     logger.info("Generating synthetic dataset (seed=%d)…", args.seed)
-    dataset = generate_fraud_ring_dataset(seed=args.seed)
+    dataset = generate_fraud_ring_dataset(
+        n_benign_phones=400,
+        n_fraud_rings=10,
+        ring_size=5,
+        calls_per_benign=4,
+        calls_per_fraud=8,
+        seed=args.seed
+    )
     pyg = dataset["pyg_data"]
     stats = dataset["stats"]
     logger.info("Dataset stats: %s", stats)

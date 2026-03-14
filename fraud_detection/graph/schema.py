@@ -3,7 +3,7 @@ NetworkX-based heterogeneous fraud graph.
 
 Schema
 ------
-Node types : phone_number, bank_account, persona, call_event
+Node types : phone_number, bank_account, persona
 Edge types : CALLED_FROM, CALLED_TO, MENTIONED_ACCOUNT,
              USED_PERSONA, OWNS_ACCOUNT
 
@@ -23,20 +23,20 @@ import networkx as nx
 
 logger = logging.getLogger(__name__)
 
+RISK_PHRASES = []  # list of phrases associated with suspicious behavior
 
 class NodeType(str, Enum):
-    PHONE = "phone_number"
-    ACCOUNT = "bank_account"
-    PERSONA = "persona"
-    CALL = "call_event"
-
+    PHONE = "phone_number"     # has phone number
+    ACCOUNT = "bank_account"   # the account number of user callers
+    PERSONA = "persona"        # call persona used by suspicious callers (e.g. "IRS agent", "Tech support")
+    CALL = "call"              # call event connecting callers and callees, may have a transcript snippet and other metadata
 
 class EdgeType(str, Enum):
-    CALLED_FROM = "CALLED_FROM"
-    CALLED_TO = "CALLED_TO"
-    MENTIONED_ACCOUNT = "MENTIONED_ACCOUNT"
-    USED_PERSONA = "USED_PERSONA"
-    OWNS_ACCOUNT = "OWNS_ACCOUNT"
+    CALLED_FROM = "CALLED_FROM" # possible scammer or caller of a suspicious call event
+    CALLED_TO = "CALLED_TO"     # possible victim or target of a call
+    MENTIONED_ACCOUNT = "MENTIONED_ACCOUNT" # account mentioned during a call suspiciously
+    USED_PERSONA = "USED_PERSONA" # persona used during a call (e.g. "IRS agent", "Tech support")
+    OWNS_ACCOUNT = "OWNS_ACCOUNT" # indicates ownership or strong association between a phone number and bank account (e.g. from call transcripts or external data)
 
 
 def _prefixed(ntype: NodeType, value: str) -> str:
