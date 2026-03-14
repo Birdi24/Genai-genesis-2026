@@ -13,5 +13,10 @@ torch-geometric>=2.6.0
 # LLM (optional — regex fallback works without it)
 openai>=1.60.0
 
+# Frontend
+streamlit>=1.40.0
+streamlit-agraph>=0.0.45
+
 # Utilities
 numpy>=1.26.0
+requests>=2.31.0

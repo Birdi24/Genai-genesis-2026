@@ -276,6 +276,50 @@ async def graph_stats():
     return fg.summary()
 
 
+@app.get("/graph/data")
+async def graph_data(max_nodes: int = 300):
+    """Return nodes and edges for frontend visualization.
+
+    Prioritises phone/account/persona nodes and caps output to keep
+    the frontend responsive.
+    """
+    fg: FraudGraph = _get("fg")
+    g = fg.graph
+
+    priority = {
+        NodeType.PHONE.value: 0,
+        NodeType.ACCOUNT.value: 1,
+        NodeType.PERSONA.value: 2,
+        NodeType.CALL.value: 3,
+    }
+    sorted_nodes = sorted(
+        g.nodes(data=True),
+        key=lambda nd: priority.get(nd[1].get("ntype", ""), 4),
+    )[:max_nodes]
+
+    included = {n for n, _ in sorted_nodes}
+
+    nodes = []
+    for nid, data in sorted_nodes:
+        nodes.append({
+            "id": nid,
+            "label": data.get("raw", nid.split("::")[-1])[:20],
+            "ntype": data.get("ntype", "unknown"),
+            "fraud_label": data.get("label", "unknown"),
+        })
+
+    edges = []
+    for u, v, data in g.edges(data=True):
+        if u in included and v in included:
+            edges.append({
+                "source": u,
+                "target": v,
+                "etype": data.get("etype", "RELATED"),
+            })
+
+    return {"nodes": nodes, "edges": edges, "summary": fg.summary()}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "graph_loaded": "fg" in _state}

@@ -140,9 +140,11 @@ class EntityExtractor:
         risk_indicators: list[str] = []
         suspicious_phrases = [
             "gift card", "wire transfer", "do not tell anyone",
-            "act now", "you will be arrested", "your ssn",
-            "social security", "warrant", "suspend your account",
-            "immediate payment", "don't hang up",
+            "don't tell anyone", "act now", "you will be arrested",
+            "your ssn", "social security", "warrant",
+            "suspend your account", "immediate payment",
+            "don't hang up", "do not hang up", "guaranteed returns",
+            "guaranteed return", "send payment", "processing fee",
         ]
         for phrase in suspicious_phrases:
             if phrase in lower:

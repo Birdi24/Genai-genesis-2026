@@ -58,31 +58,33 @@ class FraudGraph:
 
     # ── Node helpers ──────────────────────────────────────────────────
 
+    def _upsert_node(self, nid: str, ntype: str, raw: str, label: str, **attrs: Any) -> None:
+        """Insert a node or merge attributes without downgrading an existing label."""
+        with self._lock:
+            if nid in self._g:
+                existing = self._g.nodes[nid]
+                if label != "unknown" and existing.get("label") != label:
+                    existing["label"] = label
+                existing.update(attrs)
+            else:
+                self._g.add_node(
+                    nid, ntype=ntype, raw=raw,
+                    label=label, created_at=time.time(), **attrs,
+                )
+
     def add_phone(self, number: str, *, label: str = "unknown", **attrs: Any) -> str:
         nid = _prefixed(NodeType.PHONE, number)
-        with self._lock:
-            self._g.add_node(
-                nid, ntype=NodeType.PHONE.value, raw=number,
-                label=label, created_at=time.time(), **attrs,
-            )
+        self._upsert_node(nid, NodeType.PHONE.value, number, label, **attrs)
         return nid
 
     def add_account(self, account_id: str, *, label: str = "unknown", **attrs: Any) -> str:
         nid = _prefixed(NodeType.ACCOUNT, account_id)
-        with self._lock:
-            self._g.add_node(
-                nid, ntype=NodeType.ACCOUNT.value, raw=account_id,
-                label=label, created_at=time.time(), **attrs,
-            )
+        self._upsert_node(nid, NodeType.ACCOUNT.value, account_id, label, **attrs)
         return nid
 
     def add_persona(self, name: str, *, label: str = "unknown", **attrs: Any) -> str:
         nid = _prefixed(NodeType.PERSONA, name)
-        with self._lock:
-            self._g.add_node(
-                nid, ntype=NodeType.PERSONA.value, raw=name,
-                label=label, created_at=time.time(), **attrs,
-            )
+        self._upsert_node(nid, NodeType.PERSONA.value, name, label, **attrs)
         return nid
 
     def add_call_event(
