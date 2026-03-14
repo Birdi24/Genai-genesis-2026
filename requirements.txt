@@ -1,0 +1,17 @@
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+
+# Graph
+networkx>=3.4
+
+# ML / GNN
+torch>=2.5.0
+torch-geometric>=2.6.0
+
+# LLM (optional — regex fallback works without it)
+openai>=1.60.0
+
+# Utilities
+numpy>=1.26.0
