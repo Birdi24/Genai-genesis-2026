@@ -277,7 +277,7 @@ async def graph_stats():
 
 
 @app.get("/graph/data")
-async def graph_data(max_nodes: int = 300):
+async def graph_data(max_nodes: int = 120):
     """Return nodes and edges for frontend visualization.
 
     Prioritises phone/account/persona nodes and caps output to keep

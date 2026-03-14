@@ -249,7 +249,7 @@ def do_analysis(caller: str, callee: str, transcript: str):
         return
 
     try:
-        gr = requests.get(f"{API_BASE}/graph/data", timeout=10)
+        gr = requests.get(f"{API_BASE}/graph/data?max_nodes=120", timeout=10)
         gr.raise_for_status()
         st.session_state.graph_data = gr.json()
     except Exception:
