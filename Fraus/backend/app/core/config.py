@@ -24,6 +24,7 @@ class Settings:
     elevenlabs_base_url: str = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io/v1")
     takeover_ai_agent_name: str = os.getenv("TAKEOVER_AI_AGENT_NAME", "Fraus Shield Agent")
     railtracks_enabled: bool = _env_bool("RAILTRACKS_ENABLED", True)
+    fraud_engine_base_url: str = os.getenv("FRAUD_ENGINE_BASE_URL", "http://127.0.0.1:8000")
 
 
 settings = Settings()

@@ -12,8 +12,8 @@ struct VerifyCallerScreen: View {
 
     private let sampleOptions: [SampleFillOption] = [
         SampleFillOption(
-            title: "Verified",
-            phoneNumber: "+1 (800) 123-4567",
+            title: "Verified (Chase)",
+            phoneNumber: "+1 (800) 555-1234",
             hintColor: AppTheme.Colors.success
         ),
         SampleFillOption(

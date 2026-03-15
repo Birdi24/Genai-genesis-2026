@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.db.mongo import close_mongo, connect_mongo
 from app.routers.takeover import router as takeover_router
+from app.routers.transcript import router as transcript_router
 from app.routers.verification import router as verification_router
 
 
@@ -19,6 +20,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Fraus Verification API", version="0.1.0", lifespan=lifespan)
 app.include_router(verification_router)
 app.include_router(takeover_router)
+app.include_router(transcript_router)
 
 
 @app.get("/health")

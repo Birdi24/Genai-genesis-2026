@@ -14,11 +14,11 @@ enum AppRuntimeConfiguration {
     }
 
     static var useMockVerificationMode: Bool {
-        boolValue(for: "FRAUS_USE_MOCK_VERIFICATION", defaultValue: false)
+        boolValue(for: "FRAUS_USE_MOCK_VERIFICATION", defaultValue: true)
     }
 
     static var fallbackToMockOnVerificationFailure: Bool {
-        boolValue(for: "FRAUS_FALLBACK_TO_MOCK_VERIFICATION", defaultValue: false)
+        boolValue(for: "FRAUS_FALLBACK_TO_MOCK_VERIFICATION", defaultValue: true)
     }
 
     static var useMockTakeoverMode: Bool {

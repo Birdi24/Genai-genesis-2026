@@ -6,18 +6,15 @@ struct TransferToAIScreen: View {
     let onSessionStarted: (ProtectionSession) -> Void
 
     @State private var isConnecting = false
-    @State private var errorMessage: String?
-    private let takeoverService: TakeoverSessionServicing
+    private let mockFactory = MockProtectionSessionFactory()
 
     init(
         verificationResult: VerificationResult,
         demoCallSession: DemoCallSession?,
-        takeoverService: TakeoverSessionServicing? = nil,
         onSessionStarted: @escaping (ProtectionSession) -> Void
     ) {
         self.verificationResult = verificationResult
         self.demoCallSession = demoCallSession
-        self.takeoverService = takeoverService ?? TakeoverSessionService()
         self.onSessionStarted = onSessionStarted
     }
 
@@ -43,40 +40,18 @@ struct TransferToAIScreen: View {
                         }
                     }
 
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(AppTheme.Colors.warning)
-                    }
-
                     PrimaryButton(title: isConnecting ? "Connecting..." : "Start AI Protection") {
                         guard !isConnecting else { return }
                         isConnecting = true
-                        errorMessage = nil
 
                         Task {
-                            let startedAt = Date()
-
-                            do {
-                                let session = try await takeoverService.startTakeover(
-                                    verificationResult: verificationResult,
-                                    demoCallSession: demoCallSession
-                                )
-
-                                await ensureMinimumLoadingDuration(from: startedAt)
-                                onSessionStarted(session)
-                                isConnecting = false
-                            } catch {
-                                await ensureMinimumLoadingDuration(from: startedAt)
-                                isConnecting = false
-
-                                if let localizedError = error as? LocalizedError,
-                                   let description = localizedError.errorDescription {
-                                    errorMessage = description
-                                } else {
-                                    errorMessage = "Unable to start AI protection right now."
-                                }
-                            }
+                            try? await Task.sleep(nanoseconds: 900_000_000)
+                            let session = mockFactory.makeSession(
+                                for: verificationResult,
+                                callSession: demoCallSession
+                            )
+                            onSessionStarted(session)
+                            isConnecting = false
                         }
                     }
                     .opacity(isConnecting ? 0.7 : 1)
@@ -112,11 +87,4 @@ struct TransferToAIScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.input, style: .continuous))
     }
 
-    private func ensureMinimumLoadingDuration(from startDate: Date) async {
-        let elapsed = Date().timeIntervalSince(startDate)
-        let minimumDuration: TimeInterval = 0.8
-        let remaining = minimumDuration - elapsed
-        guard remaining > 0 else { return }
-        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
-    }
 }

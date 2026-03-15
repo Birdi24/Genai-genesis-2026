@@ -1,9 +1,31 @@
 import Foundation
 
 struct MockVerificationService {
+    static let verifiedNumbers: [String: String] = [
+        "18005551234": "Chase Bank — Official",
+        "18004567890": "Bank of America — Fraud Dept",
+        "18009221111": "Wells Fargo — Customer Service",
+    ]
+
     func verify(phoneNumber: String) -> VerificationResult {
         let normalizedDigits = phoneNumber.filter(\.isNumber)
         let formattedNumber = normalizedDigits.isEmpty ? phoneNumber : normalizedDigits
+
+        if let bankName = Self.verifiedNumbers[normalizedDigits] {
+            return VerificationResult(
+                phoneNumber: formattedNumber,
+                state: .verified,
+                explanation: "This is a verified institutional number for \(bankName). No AI takeover needed.",
+                threatTags: [
+                    ThreatTag(label: "Verified Institution", severity: .low),
+                    ThreatTag(label: "Known Contact", severity: .low),
+                    ThreatTag(label: "No Pressure Language", severity: .low)
+                ],
+                confidence: 99,
+                sourceLabel: "Fraus Verified Directory",
+                riskLevel: "low"
+            )
+        }
 
         if normalizedDigits.hasSuffix("1111") {
             return VerificationResult(

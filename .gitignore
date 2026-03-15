@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+
+# Model weights
+*.pt
+*.pth
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+
+# macOS
+.DS_Store
+
+# Runtime data
+data/dashboard_state.json
+data/transcripts_backup.json
+data/graph_store.json
+
+# Nested fraud-engine clone (already on main)
+fraud-engine/
+
+# Misc
+.mypy_cache/
+.pytest_cache/
+.railtracks
