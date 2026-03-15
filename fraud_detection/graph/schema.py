@@ -199,6 +199,130 @@ class FraudGraph:
         counts["edges"] = self._g.number_of_edges()
         return counts
 
+    # ── Insight detection ────────────────────────────────────────────
+
+    def detect_insights(self) -> list[dict[str, Any]]:
+        """Scan the graph for fraud-indicative structural patterns.
+
+        Returns a list of insight dicts, each with:
+            id, severity, summary, involved_nodes
+        """
+        g = self._g
+        insights: list[dict[str, Any]] = []
+        _id = 0
+
+        # ── 1. Shared drop accounts ───────────────────────────────────
+        # Accounts targeted by 2+ distinct phone callers are drop accounts.
+        for nid, data in g.nodes(data=True):
+            if data.get("ntype") != NodeType.ACCOUNT.value:
+                continue
+            callers: set[str] = set()
+            for pred in g.predecessors(nid):
+                if g.nodes[pred].get("ntype") == NodeType.CALL.value:
+                    for caller in g.predecessors(pred):
+                        if g.nodes[caller].get("ntype") == NodeType.PHONE.value:
+                            callers.add(caller)
+            for succ in g.successors(nid):
+                if g.nodes[succ].get("ntype") == NodeType.PHONE.value:
+                    callers.add(succ)
+            if len(callers) >= 2:
+                raw = data.get("raw", nid.split("::")[-1])
+                _id += 1
+                insights.append({
+                    "id": f"drop-{_id}",
+                    "severity": "high" if len(callers) >= 3 else "medium",
+                    "summary": (
+                        f"Shared drop account: {len(callers)} phones target "
+                        f"account {raw}"
+                    ),
+                    "involved_nodes": list(callers | {nid}),
+                })
+
+        # ── 2. Reused scam personas ───────────────────────────────────
+        # Personas used by 3+ different phones indicate an organised ring.
+        for nid, data in g.nodes(data=True):
+            if data.get("ntype") != NodeType.PERSONA.value:
+                continue
+            phones: set[str] = set()
+            for pred in g.predecessors(nid):
+                if g.nodes[pred].get("ntype") == NodeType.CALL.value:
+                    for caller in g.predecessors(pred):
+                        if g.nodes[caller].get("ntype") == NodeType.PHONE.value:
+                            phones.add(caller)
+            if len(phones) >= 3:
+                raw = data.get("raw", nid.split("::")[-1])
+                _id += 1
+                insights.append({
+                    "id": f"persona-{_id}",
+                    "severity": "high",
+                    "summary": (
+                        f"Fraud ring: {len(phones)} phones impersonating "
+                        f"\"{raw}\""
+                    ),
+                    "involved_nodes": list(phones | {nid}),
+                })
+
+        # ── 3. High-degree hub phones ─────────────────────────────────
+        # Phones with unusually high connectivity are potential ring leaders.
+        phone_degrees: list[tuple[str, int]] = []
+        for nid, data in g.nodes(data=True):
+            if data.get("ntype") != NodeType.PHONE.value:
+                continue
+            deg = g.in_degree(nid) + g.out_degree(nid)
+            phone_degrees.append((nid, deg))
+        phone_degrees.sort(key=lambda x: x[1], reverse=True)
+        if phone_degrees:
+            median_deg = phone_degrees[len(phone_degrees) // 2][1]
+            threshold = max(median_deg * 3, 6)
+            for nid, deg in phone_degrees:
+                if deg < threshold:
+                    break
+                raw = g.nodes[nid].get("raw", nid.split("::")[-1])
+                neighbors = list(self.neighbors(nid, hops=1))[:10]
+                _id += 1
+                insights.append({
+                    "id": f"hub-{_id}",
+                    "severity": "medium",
+                    "summary": (
+                        f"Central hub: {raw} has {deg} connections "
+                        f"(median is {median_deg})"
+                    ),
+                    "involved_nodes": [nid] + neighbors,
+                })
+
+        # ── 4. Fraud-labelled clusters ────────────────────────────────
+        # Connected components of fraud-labelled phones.
+        fraud_phones = {
+            n for n, d in g.nodes(data=True)
+            if d.get("ntype") == NodeType.PHONE.value and d.get("label") == "fraud"
+        }
+        if fraud_phones:
+            ug = g.to_undirected()
+            for comp in nx.connected_components(ug):
+                cluster = comp & fraud_phones
+                if len(cluster) >= 2:
+                    involved = set()
+                    for n in cluster:
+                        involved.add(n)
+                        for nb in self.neighbors(n, hops=1):
+                            ntype = g.nodes.get(nb, {}).get("ntype", "")
+                            if ntype in (NodeType.ACCOUNT.value, NodeType.PERSONA.value):
+                                involved.add(nb)
+                    _id += 1
+                    insights.append({
+                        "id": f"ring-{_id}",
+                        "severity": "critical",
+                        "summary": (
+                            f"Fraud ring detected: {len(cluster)} confirmed "
+                            f"fraud phones in connected cluster"
+                        ),
+                        "involved_nodes": list(involved),
+                    })
+
+        severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        insights.sort(key=lambda i: severity_rank.get(i["severity"], 9))
+        return insights
+
     # ── Export (Neo4j migration path) ─────────────────────────────────
 
     def to_cypher_statements(self) -> list[str]:

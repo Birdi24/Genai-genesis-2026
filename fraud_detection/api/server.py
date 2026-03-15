@@ -314,6 +314,13 @@ async def graph_stats():
     return fg.summary()
 
 
+@app.get("/graph/insights")
+async def graph_insights():
+    """Detect fraud-indicative patterns and return human-readable insights."""
+    fg: FraudGraph = _get("fg")
+    return fg.detect_insights()
+
+
 @app.get("/graph/data")
 async def graph_data(max_phones: int = 40):
     """Return the heterogeneous graph for frontend visualization.

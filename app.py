@@ -24,6 +24,29 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
 
+html, body { background: #16161e !important; }
+
+@keyframes prismRotate {
+    0%, 100% {
+        background: #16161e,
+                    radial-gradient(ellipse 80% 50% at 20% 30%, rgba(125,207,255,0.15), transparent 50%),
+                    radial-gradient(ellipse 60% 80% at 85% 70%, rgba(187,154,247,0.12), transparent 45%),
+                    radial-gradient(ellipse 70% 60% at 50% 90%, rgba(122,162,247,0.1), transparent 40%);
+    }
+    33% {
+        background: #16161e,
+                    radial-gradient(ellipse 70% 60% at 80% 40%, rgba(187,154,247,0.15), transparent 50%),
+                    radial-gradient(ellipse 80% 50% at 15% 75%, rgba(125,207,255,0.12), transparent 45%),
+                    radial-gradient(ellipse 60% 70% at 55% 15%, rgba(247,118,142,0.08), transparent 40%);
+    }
+    66% {
+        background: #16161e,
+                    radial-gradient(ellipse 60% 80% at 55% 25%, rgba(122,162,247,0.12), transparent 50%),
+                    radial-gradient(ellipse 70% 60% at 90% 60%, rgba(187,154,247,0.12), transparent 45%),
+                    radial-gradient(ellipse 80% 50% at 25% 85%, rgba(125,207,255,0.1), transparent 40%);
+    }
+}
+
 :root {
     --tn-bg:        #1a1b26;
     --tn-bg-dark:   #16161e;
@@ -41,9 +64,24 @@ st.markdown("""
 }
 
 .stApp {
-    background-color: var(--tn-bg) !important;
+    background: transparent !important;
     color: var(--tn-fg) !important;
     font-family: 'Inter', sans-serif !important;
+}
+.stApp::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    min-height: 100vh;
+    animation: prismRotate 12s ease-in-out infinite;
+    pointer-events: none;
+}
+[data-testid="stAppViewContainer"],
+.main .block-container {
+    position: relative;
+    z-index: 1;
+    background: transparent !important;
 }
 
 header[data-testid="stHeader"] { background-color: var(--tn-bg-dark) !important; }
@@ -172,6 +210,37 @@ div.stButton > button:hover { opacity: 0.85 !important; }
     margin-top: 6px;
     overflow: hidden;
 }
+
+/* Meaningful Connections radio list */
+div[data-testid="stRadio"] > div {
+    max-height: 220px;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    flex-direction: column !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    padding: 6px;
+    background: linear-gradient(180deg, var(--tn-bg) 0%, var(--tn-bg-dark) 100%);
+    border: 1px solid var(--tn-border);
+    border-radius: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--tn-comment) var(--tn-bg-dark);
+}
+div[data-testid="stRadio"] > div::-webkit-scrollbar { width: 8px; }
+div[data-testid="stRadio"] > div::-webkit-scrollbar-thumb { background: var(--tn-comment); border-radius: 4px; }
+div[data-testid="stRadio"] label {
+    padding: 12px 14px !important;
+    margin: 4px 0 !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+}
+div[data-testid="stRadio"] label:hover {
+    background: linear-gradient(135deg, rgba(122,162,247,0.12), rgba(187,154,247,0.08)) !important;
+}
+div[data-testid="stRadio"] label:has(input:checked) {
+    background: linear-gradient(135deg, rgba(125,207,255,0.2), rgba(122,162,247,0.12)) !important;
+    border: 1px solid rgba(125,207,255,0.4) !important;
+}
 .meter-fill {
     height: 100%;
     border-radius: 3px;
@@ -186,6 +255,7 @@ div.stButton > button:hover { opacity: 0.85 !important; }
 for _key, _default in [
     ("analysis", None), ("graph_data", None), ("graph_stats", None),
     ("error", None), ("history", []), ("graph_version", 0),
+    ("insights", []), ("selected_insight", None),
 ]:
     if _key not in st.session_state:
         st.session_state[_key] = _default
@@ -218,7 +288,7 @@ def meter_color(score: float) -> str:
 
 
 def _fetch_graph():
-    """Fetch latest graph data + stats from the backend."""
+    """Fetch latest graph data, stats, and insights from the backend."""
     try:
         gr = requests.get(f"{API_BASE}/graph/data?max_phones=40", timeout=10)
         gr.raise_for_status()
@@ -229,6 +299,12 @@ def _fetch_graph():
         gs = requests.get(f"{API_BASE}/graph/stats", timeout=10)
         gs.raise_for_status()
         st.session_state.graph_stats = gs.json()
+    except Exception:
+        pass
+    try:
+        ins = requests.get(f"{API_BASE}/graph/insights", timeout=10)
+        ins.raise_for_status()
+        st.session_state.insights = ins.json()
     except Exception:
         pass
     st.session_state.graph_version += 1
@@ -304,9 +380,34 @@ with left_col:
 
     st.button("⚡  Analyze Intent", on_click=do_analysis, args=(caller, callee, transcript), use_container_width=True)
 
-    # Auto-fetch graph on first load so the visualization appears immediately
-    if st.session_state.graph_data is None:
+    # Fetch graph + insights before rendering so data is available
+    if st.session_state.graph_data is None or not st.session_state.insights:
         _fetch_graph()
+
+    # ── Meaningful Connections panel ──────────────────────────────────
+    insight_list = st.session_state.insights or []
+    if insight_list:
+        st.markdown('<p class="section-title" style="margin-top:1rem;">Meaningful Connections</p>', unsafe_allow_html=True)
+
+        SEVERITY_ICON = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+        options = ["○ Show all"] + [
+            f"{SEVERITY_ICON.get(i['severity'], '⚪')} {i['summary']}"
+            for i in insight_list
+        ]
+        sel = st.session_state.selected_insight
+        current_idx = 0 if sel is None else next((i for i, x in enumerate(insight_list) if x == sel), -1) + 1
+        choice = st.radio(
+            "insight_selector",
+            options,
+            index=min(current_idx, len(options) - 1),
+            label_visibility="collapsed",
+            key="insight_radio",
+        )
+        if choice == "○ Show all":
+            st.session_state.selected_insight = None
+        else:
+            idx = options.index(choice) - 1
+            st.session_state.selected_insight = insight_list[idx]
 
     if st.session_state.error:
         st.error(st.session_state.error)
@@ -398,7 +499,7 @@ with left_col:
             """, unsafe_allow_html=True)
 
 
-# ── RIGHT COLUMN: Network Graph ──────────────────────────────────────
+# ── RIGHT COLUMN: Network Graph + Insights ───────────────────────────
 
 with right_col:
     st.markdown('<p class="section-title">Network Graph</p>', unsafe_allow_html=True)
@@ -416,18 +517,26 @@ with right_col:
         </div>
         """, unsafe_allow_html=True)
 
+    # ── Resolve highlight set ────────────────────────────────────────
+    sel = st.session_state.selected_insight
+    highlight_ids: set[str] | None = None
+    if sel:
+        highlight_ids = set(sel.get("involved_nodes", []))
+
     # ── Render graph ─────────────────────────────────────────────────
     gd = st.session_state.graph_data
     if gd and gd.get("nodes"):
 
-        # Style maps — every node type is distinct
         NODE_CFG = {
             "phone_number": {"color": "#7aa2f7", "size": 12, "shape": "dot"},
             "bank_account": {"color": "#ff9e64", "size": 16, "shape": "square"},
             "persona":      {"color": "#bb9af7", "size": 20, "shape": "triangle"},
         }
-        FRAUD_COLOR = "#ff4466"
-        EDGE_COLOR  = "#5a6380"
+        FRAUD_COLOR    = "#ff4466"
+        EDGE_COLOR     = "#5a6380"
+        HIGHLIGHT_COLOR = "#7dcfff"
+        DIM_NODE_COLOR  = "#2a2d3d"
+        DIM_EDGE_COLOR  = "#22243000"
 
         node_ids = {n["id"] for n in gd["nodes"]}
 
@@ -436,8 +545,25 @@ with right_col:
             ntype = n["ntype"]
             is_fraud = n["fraud_label"] == "fraud"
             cfg = NODE_CFG.get(ntype, {"color": "#565f89", "size": 10, "shape": "dot"})
-            color = FRAUD_COLOR if is_fraud else cfg["color"]
-            size = cfg["size"] + 6 if is_fraud else cfg["size"]
+
+            if highlight_ids is not None:
+                in_focus = n["id"] in highlight_ids
+                if in_focus:
+                    color = HIGHLIGHT_COLOR if not is_fraud else FRAUD_COLOR
+                    size = cfg["size"] + 10
+                    border = 4
+                    font_color = "#ffffff"
+                else:
+                    color = DIM_NODE_COLOR
+                    size = max(cfg["size"] - 2, 5)
+                    border = 0
+                    font_color = "#3b4261"
+            else:
+                color = FRAUD_COLOR if is_fraud else cfg["color"]
+                size = cfg["size"] + 6 if is_fraud else cfg["size"]
+                border = 3 if is_fraud else 1
+                font_color = "#c0caf5"
+
             label = "" if ntype == "phone_number" else n["label"]
 
             nodes.append(Node(
@@ -447,9 +573,9 @@ with right_col:
                 size=size,
                 color=color,
                 shape=cfg["shape"],
-                font={"color": "#c0caf5", "size": 10, "strokeWidth": 2, "strokeColor": "#16161e"},
-                borderWidth=3 if is_fraud else 1,
-                borderWidthSelected=4,
+                font={"color": font_color, "size": 10, "strokeWidth": 2, "strokeColor": "#16161e"},
+                borderWidth=border,
+                borderWidthSelected=5,
             ))
 
         edges = []
@@ -462,11 +588,20 @@ with right_col:
             if pair in seen:
                 continue
             seen.add(pair)
+
+            if highlight_ids is not None:
+                both_in = src in highlight_ids and tgt in highlight_ids
+                edge_color = HIGHLIGHT_COLOR if both_in else DIM_EDGE_COLOR
+                edge_width = 3 if both_in else 0.5
+            else:
+                edge_color = EDGE_COLOR
+                edge_width = 1.5
+
             edges.append(Edge(
                 source=src,
                 target=tgt,
-                color=EDGE_COLOR,
-                width=1.5,
+                color=edge_color,
+                width=edge_width,
             ))
 
         config = Config(
@@ -481,18 +616,18 @@ with right_col:
             node={"labelProperty": "label"},
             link={"highlightColor": "#7aa2f7", "renderLabel": False},
             backgroundColor="#16161e",
-            key=f"fraud_graph_{st.session_state.graph_version}",
+            key=f"fraud_graph_{st.session_state.graph_version}_{id(sel)}",
         )
 
         agraph(nodes=nodes, edges=edges, config=config)
 
-        # Legend
         st.markdown("""
         <div style="display:flex; gap:20px; justify-content:center; margin-top:10px; font-size:12px; color:var(--tn-comment); flex-wrap:wrap;">
             <span><span style="color:#7aa2f7; font-size:14px;">●</span> Phone</span>
             <span><span style="color:#ff9e64; font-size:14px;">■</span> Account</span>
             <span><span style="color:#bb9af7; font-size:14px;">▲</span> Persona</span>
             <span><span style="color:#ff4466; font-size:14px;">●</span> Fraud-flagged</span>
+            <span><span style="color:#7dcfff; font-size:14px;">◉</span> Highlighted</span>
         </div>
         """, unsafe_allow_html=True)
     else:
