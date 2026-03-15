@@ -102,7 +102,7 @@ fraud_detection/
 │   ├── schema.py           # NetworkX graph with typed nodes/edges
 │   └── risk_scorer.py      # Composite risk scoring engine
 ├── llm/
-│   └── entity_extractor.py # LLM + regex entity extraction
+│   └── entity_extractor.py # Railtracks + regex entity extraction
 ├── models/
 │   └── sage_model.py       # GraphSAGE (PyTorch Geometric)
 ├── config.py               # Central configuration
