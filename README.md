@@ -9,7 +9,7 @@ Real-time scam detection system combining **LLM-based intent analysis** with a *
 │  Call Stream  │────▶│   FastAPI Server    │────▶│   Risk Report    │
 └──────────────┘     │                    │     └──────────────────┘
                      │  ┌──────────────┐  │
-                     │  │ LLM Extractor│  │  Entity extraction
+                     │  │  Railtracks  │  │  Entity extraction
                      │  └──────┬───────┘  │  (phone, account, persona)
                      │         ▼          │
                      │  ┌──────────────┐  │
