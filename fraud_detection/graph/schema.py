@@ -13,15 +13,20 @@ and for zero-friction migration to Neo4j via Cypher export.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import networkx as nx
+from networkx.readwrite import json_graph
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_GRAPH_STORE = Path("data/graph_store.json")
 
 RISK_PHRASES = []  # list of phrases associated with suspicious behavior
 
@@ -51,10 +56,38 @@ class FraudGraph:
     can safely read while the background ingest writes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, store_path: Path | None = DEFAULT_GRAPH_STORE) -> None:
         self._g = nx.DiGraph()
+        self._store_path = store_path
         import threading
         self._lock = threading.Lock()
+
+    # ── Persistence ────────────────────────────────────────────────────
+
+    def save(self) -> None:
+        """Dump the graph to JSON so it survives server reboots."""
+        if not self._store_path:
+            return
+        self._store_path.parent.mkdir(parents=True, exist_ok=True)
+        data = json_graph.node_link_data(self._g)
+        tmp = self._store_path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        tmp.replace(self._store_path)
+        logger.debug("Graph persisted to %s (%d nodes, %d edges)",
+                     self._store_path, self._g.number_of_nodes(), self._g.number_of_edges())
+
+    @classmethod
+    def load(cls, store_path: Path = DEFAULT_GRAPH_STORE) -> FraudGraph:
+        """Load a previously saved graph, or return an empty one."""
+        fg = cls(store_path=store_path)
+        if store_path.exists():
+            with open(store_path) as f:
+                data = json.load(f)
+            fg._g = json_graph.node_link_graph(data, directed=True, multigraph=False)
+            logger.info("Loaded persisted graph from %s (%d nodes, %d edges)",
+                        store_path, fg._g.number_of_nodes(), fg._g.number_of_edges())
+        return fg
 
     # ── Node helpers ──────────────────────────────────────────────────
 

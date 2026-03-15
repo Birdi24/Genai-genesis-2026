@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from fraud_detection.config import AppConfig
 from fraud_detection.data.synthetic import generate_fraud_ring_dataset, _graph_to_pyg
-from fraud_detection.graph.schema import FraudGraph, NodeType, _prefixed
+from fraud_detection.graph.schema import FraudGraph, NodeType, _prefixed, DEFAULT_GRAPH_STORE
 from fraud_detection.graph.risk_scorer import RiskScorer
 from fraud_detection.llm.entity_extractor import EntityExtractor, ExtractionResult
 from fraud_detection.models.sage_model import FraudSAGE, train_one_epoch, evaluate
@@ -45,10 +45,20 @@ async def lifespan(app: FastAPI):
     cfg = AppConfig()
     logging.basicConfig(level=cfg.log_level, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
+    # Always generate synthetic data for GNN training baseline
     logger.info("Generating synthetic fraud-ring dataset…")
     dataset = generate_fraud_ring_dataset()
     fg: FraudGraph = dataset["graph"]
+    fg._store_path = DEFAULT_GRAPH_STORE
     pyg = dataset["pyg_data"]
+
+    # Merge any previously persisted user-submitted data on top
+    persisted = FraudGraph.load(DEFAULT_GRAPH_STORE)
+    if persisted.graph.number_of_nodes() > 0:
+        import networkx as nx
+        fg._g = nx.compose(fg._g, persisted.graph)
+        logger.info("Merged persisted graph data — total: %d nodes, %d edges",
+                     fg.graph.number_of_nodes(), fg.graph.number_of_edges())
 
     logger.info("Training GraphSAGE on synthetic data…")
     model = FraudSAGE(
@@ -224,6 +234,7 @@ async def analyze_transcript(req: TranscriptRequest):
         accounts=extraction.bank_accounts,
         transcript_snippet=req.transcript[:200],
     )
+    fg.save()
 
     _rebuild_pyg()
     gnn_prob = _gnn_predict_phone(req.caller)
@@ -270,6 +281,7 @@ async def ingest_call(req: IngestRequest):
         accounts=req.accounts,
         transcript_snippet=req.transcript_snippet,
     )
+    fg.save()
     _rebuild_pyg()
     return {"status": "ok", "call_id": call_id, "graph_summary": fg.summary()}
 
@@ -303,30 +315,28 @@ async def graph_stats():
 
 
 @app.get("/graph/data")
-async def graph_data(max_nodes: int = 120):
-    """Return nodes and edges for frontend visualization.
+async def graph_data(max_phones: int = 40):
+    """Return the heterogeneous graph for frontend visualization.
 
-    Prioritises phone/account/persona nodes and caps output to keep
-    the frontend responsive.
+    Strategy: include ALL personas and accounts (there are few), then
+    fill up to *max_phones* phone nodes.  Call-event nodes are
+    collapsed — the server resolves them into direct edges between
+    phones, accounts and personas so the frontend never needs to
+    render the tiny hub nodes.
     """
     fg: FraudGraph = _get("fg")
     g = fg.graph
 
-    priority = {
-        NodeType.PHONE.value: 0,
-        NodeType.ACCOUNT.value: 1,
-        NodeType.PERSONA.value: 2,
-        NodeType.CALL.value: 3,
-    }
-    sorted_nodes = sorted(
-        g.nodes(data=True),
-        key=lambda nd: priority.get(nd[1].get("ntype", ""), 4),
-    )[:max_nodes]
+    personas  = [(n, d) for n, d in g.nodes(data=True) if d.get("ntype") == NodeType.PERSONA.value]
+    accounts  = [(n, d) for n, d in g.nodes(data=True) if d.get("ntype") == NodeType.ACCOUNT.value]
+    phones    = [(n, d) for n, d in g.nodes(data=True) if d.get("ntype") == NodeType.PHONE.value]
+    call_nodes = {n for n, d in g.nodes(data=True) if d.get("ntype") == NodeType.CALL.value}
 
-    included = {n for n, _ in sorted_nodes}
+    phones = phones[:max_phones]
+    visible = {n for n, _ in personas + accounts + phones}
 
     nodes = []
-    for nid, data in sorted_nodes:
+    for nid, data in personas + accounts + phones:
         nodes.append({
             "id": nid,
             "label": data.get("raw", nid.split("::")[-1])[:20],
@@ -334,14 +344,26 @@ async def graph_data(max_nodes: int = 120):
             "fraud_label": data.get("label", "unknown"),
         })
 
-    edges = []
+    # Collapse call-event hubs into direct edges.
+    # For every call node, connect its predecessors to its successors
+    # so we get phone→account, phone→persona, phone→phone edges.
+    edges_set: set[tuple[str, str, str]] = set()
+    for cn in call_nodes:
+        preds = [p for p in g.predecessors(cn) if p in visible]
+        succs = [s for s in g.successors(cn) if s in visible]
+        for p in preds:
+            for s in succs:
+                if p != s:
+                    edge_data = g.get_edge_data(cn, s) or {}
+                    etype = edge_data.get("etype", "RELATED")
+                    edges_set.add((p, s, etype))
+
+    # Also include direct edges (OWNS_ACCOUNT, etc.) that don't go through call nodes
     for u, v, data in g.edges(data=True):
-        if u in included and v in included:
-            edges.append({
-                "source": u,
-                "target": v,
-                "etype": data.get("etype", "RELATED"),
-            })
+        if u in visible and v in visible and u not in call_nodes and v not in call_nodes:
+            edges_set.add((u, v, data.get("etype", "RELATED")))
+
+    edges = [{"source": u, "target": v, "etype": e} for u, v, e in edges_set]
 
     return {"nodes": nodes, "edges": edges, "summary": fg.summary()}
 

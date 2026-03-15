@@ -183,16 +183,12 @@ div.stButton > button:hover { opacity: 0.85 !important; }
 
 # ── Session state init ────────────────────────────────────────────────
 
-if "analysis" not in st.session_state:
-    st.session_state.analysis = None
-if "graph_data" not in st.session_state:
-    st.session_state.graph_data = None
-if "graph_stats" not in st.session_state:
-    st.session_state.graph_stats = None
-if "error" not in st.session_state:
-    st.session_state.error = None
-if "history" not in st.session_state:
-    st.session_state.history = []
+for _key, _default in [
+    ("analysis", None), ("graph_data", None), ("graph_stats", None),
+    ("error", None), ("history", []), ("graph_version", 0),
+]:
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -221,14 +217,31 @@ def meter_color(score: float) -> str:
     return "var(--tn-green)"
 
 
+def _fetch_graph():
+    """Fetch latest graph data + stats from the backend."""
+    try:
+        gr = requests.get(f"{API_BASE}/graph/data?max_phones=40", timeout=10)
+        gr.raise_for_status()
+        st.session_state.graph_data = gr.json()
+    except Exception:
+        pass
+    try:
+        gs = requests.get(f"{API_BASE}/graph/stats", timeout=10)
+        gs.raise_for_status()
+        st.session_state.graph_stats = gs.json()
+    except Exception:
+        pass
+    st.session_state.graph_version += 1
+
+
 def do_analysis(caller: str, callee: str, transcript: str):
-    """Call /analyze then /graph/data and store in session state."""
+    """Call /analyze then re-fetch the full graph and bump the render key."""
     st.session_state.error = None
     try:
         resp = requests.post(
             f"{API_BASE}/analyze",
             json={"caller": caller, "callee": callee, "transcript": transcript},
-            timeout=10,
+            timeout=15,
         )
         resp.raise_for_status()
         st.session_state.analysis = resp.json()
@@ -248,19 +261,7 @@ def do_analysis(caller: str, callee: str, transcript: str):
         st.session_state.error = str(e)
         return
 
-    try:
-        gr = requests.get(f"{API_BASE}/graph/data?max_nodes=120", timeout=10)
-        gr.raise_for_status()
-        st.session_state.graph_data = gr.json()
-    except Exception:
-        pass
-
-    try:
-        gs = requests.get(f"{API_BASE}/graph/stats", timeout=10)
-        gs.raise_for_status()
-        st.session_state.graph_stats = gs.json()
-    except Exception:
-        pass
+    _fetch_graph()
 
 
 # ── Header ────────────────────────────────────────────────────────────
@@ -302,6 +303,10 @@ with left_col:
     )
 
     st.button("⚡  Analyze Intent", on_click=do_analysis, args=(caller, callee, transcript), use_container_width=True)
+
+    # Auto-fetch graph on first load so the visualization appears immediately
+    if st.session_state.graph_data is None:
+        _fetch_graph()
 
     if st.session_state.error:
         st.error(st.session_state.error)
@@ -411,72 +416,63 @@ with right_col:
         </div>
         """, unsafe_allow_html=True)
 
-    # Render graph
+    # ── Render graph ─────────────────────────────────────────────────
     gd = st.session_state.graph_data
     if gd and gd.get("nodes"):
-        node_colors = {
-            "phone_number": "#7aa2f7",
-            "bank_account": "#ff9e64",
-            "persona":      "#bb9af7",
-        }
-        node_sizes = {
-            "phone_number": 18,
-            "bank_account": 16,
-            "persona":      22,
-        }
-        fraud_color = "#f7768e"
 
-        # Exclude call_event nodes — they're tiny dots that create visual chaos.
-        # Build a set of included node IDs so edges can be filtered to match.
-        included_ids = {
-            n["id"] for n in gd["nodes"]
-            if n["ntype"] != "call_event"
+        # Style maps — every node type is distinct
+        NODE_CFG = {
+            "phone_number": {"color": "#7aa2f7", "size": 12, "shape": "dot"},
+            "bank_account": {"color": "#ff9e64", "size": 16, "shape": "square"},
+            "persona":      {"color": "#bb9af7", "size": 20, "shape": "triangle"},
         }
+        FRAUD_COLOR = "#ff4466"
+        EDGE_COLOR  = "#5a6380"
+
+        node_ids = {n["id"] for n in gd["nodes"]}
 
         nodes = []
         for n in gd["nodes"]:
             ntype = n["ntype"]
-            if ntype == "call_event":
-                continue
             is_fraud = n["fraud_label"] == "fraud"
-            color = fraud_color if is_fraud else node_colors.get(ntype, "#565f89")
-            size = node_sizes.get(ntype, 14)
-            if is_fraud:
-                size = int(size * 1.5)
+            cfg = NODE_CFG.get(ntype, {"color": "#565f89", "size": 10, "shape": "dot"})
+            color = FRAUD_COLOR if is_fraud else cfg["color"]
+            size = cfg["size"] + 6 if is_fraud else cfg["size"]
+            label = "" if ntype == "phone_number" else n["label"]
 
             nodes.append(Node(
                 id=n["id"],
-                label=n["label"],
+                label=label,
+                title=n["label"],
                 size=size,
                 color=color,
-                font={"color": "#c0caf5", "size": 10},
-                borderWidth=3 if is_fraud else 0,
+                shape=cfg["shape"],
+                font={"color": "#c0caf5", "size": 10, "strokeWidth": 2, "strokeColor": "#16161e"},
+                borderWidth=3 if is_fraud else 1,
                 borderWidthSelected=4,
-                shape="dot",
             ))
 
         edges = []
-        seen_pairs = set()
+        seen = set()
         for e in gd["edges"]:
             src, tgt = e["source"], e["target"]
-            # Only draw edges between visible nodes; deduplicate bidirectional pairs
-            if src not in included_ids or tgt not in included_ids:
+            if src not in node_ids or tgt not in node_ids:
                 continue
             pair = tuple(sorted([src, tgt]))
-            if pair in seen_pairs:
+            if pair in seen:
                 continue
-            seen_pairs.add(pair)
+            seen.add(pair)
             edges.append(Edge(
                 source=src,
                 target=tgt,
-                color="#3b4261",
-                width=1,
+                color=EDGE_COLOR,
+                width=1.5,
             ))
 
         config = Config(
             width="100%",
-            height=560,
-            directed=False,
+            height=620,
+            directed=True,
             physics=True,
             hierarchical=False,
             nodeHighlightBehavior=True,
@@ -485,19 +481,18 @@ with right_col:
             node={"labelProperty": "label"},
             link={"highlightColor": "#7aa2f7", "renderLabel": False},
             backgroundColor="#16161e",
-            key="fraud_graph",
+            key=f"fraud_graph_{st.session_state.graph_version}",
         )
 
         agraph(nodes=nodes, edges=edges, config=config)
 
         # Legend
         st.markdown("""
-        <div style="display:flex; gap:18px; justify-content:center; margin-top:8px; font-size:11px; color:var(--tn-comment);">
-            <span><span style="color:#7aa2f7;">●</span> Phone</span>
-            <span><span style="color:#ff9e64;">●</span> Account</span>
-            <span><span style="color:#bb9af7;">●</span> Persona</span>
-            <span><span style="color:#3b4261;">●</span> Call</span>
-            <span><span style="color:#f7768e;">●</span> Fraud</span>
+        <div style="display:flex; gap:20px; justify-content:center; margin-top:10px; font-size:12px; color:var(--tn-comment); flex-wrap:wrap;">
+            <span><span style="color:#7aa2f7; font-size:14px;">●</span> Phone</span>
+            <span><span style="color:#ff9e64; font-size:14px;">■</span> Account</span>
+            <span><span style="color:#bb9af7; font-size:14px;">▲</span> Persona</span>
+            <span><span style="color:#ff4466; font-size:14px;">●</span> Fraud-flagged</span>
         </div>
         """, unsafe_allow_html=True)
     else:
